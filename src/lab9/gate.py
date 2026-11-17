@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+from statistics import mean
 from pathlib import Path
 
 from lab8.console import utf8_stdio
 from lab9 import stats
+from lab9.graders import GRADERS
 from lab9.eval import SPEC, load_spec, per_item
 
 
@@ -33,8 +36,52 @@ def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = N
         including dropping no_significant_drop)
       - an item's slice tags in PR rows differ from the baseline's (relabelling an item out of a
         slice hides its regression from the slice gate)"""
-    # TODO M7
-    return []
+    problems = []
+    rows = pr["rows"]
+    manifest = pr["manifest"]
+    seeds = manifest["seeds"]
+    baseline_tags = {(r["item_id"], r["seed"]): set(r.get("slices", [])) for r in base["rows"]}
+    pairs = {(r["item_id"], r["seed"]) for r in rows}
+    if (len(rows) != manifest["items"] * len(seeds) or len(rows) != len(pairs)
+            or pairs != baseline_tags.keys() or set(seeds) != {s for _, s in pairs}
+            or len(set(seeds)) != len(seeds) or manifest["items"] != len({i for i, _ in pairs})):
+        problems.append("item/seed coverage differs or contains duplicates")
+    if pr.get("evaluator_failures"):
+        problems.append("evaluator failures present")
+    for metric, value in pr["metrics"].items():
+        if value is not None and (not isinstance(value, (float, int)) or not math.isfinite(value)):
+            problems.append(f"{metric}: invalid aggregate")
+    graded = [m["id"] for m in spec["metrics"] if m["id"] in GRADERS]
+    for row in rows:
+        key = (row["item_id"], row["seed"])
+        if key in baseline_tags and set(row.get("slices", [])) != baseline_tags[key]:
+            problems.append(f"{key}: changed slice tags")
+        for metric in graded:
+            if type(row.get(metric)) is not bool:
+                problems.append(f"{key}: missing or invalid {metric}")
+    if base_spec and spec["eval_set_version"] == base_spec["eval_set_version"]:
+        for section, fields in (("metrics", ("id",)), ("slices", ("name", "metric"))):
+            rules = {tuple(r[f] for f in fields): r for r in spec.get(section, [])}
+            for old in base_spec.get(section, []):
+                key = tuple(old[f] for f in fields)
+                new = rules.get(key)
+                if new is None:
+                    problems.append(f"{key}: rule removed")
+                    continue
+                if old.get("blocking") and not new.get("blocking"):
+                    problems.append(f"{key}: blocking disabled")
+                prior = old.get("threshold", old)
+                current = new.get("threshold", new)
+                for limit in ("min", "max", "max_increase"):
+                    if limit not in prior:
+                        continue
+                    value = current.get(limit)
+                    if (not isinstance(value, (int, float)) or not math.isfinite(value)
+                            or (value < prior[limit] if limit == "min" else value > prior[limit])):
+                        problems.append(f"{key}: loosened {limit}")
+                if prior.get("no_significant_drop") and not current.get("no_significant_drop"):
+                    problems.append(f"{key}: removed paired comparison")
+    return problems
 
 
 def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]:
@@ -44,8 +91,33 @@ def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]
       - fail if below "min", or if no_significant_drop and the paired CI over the slice's items
         lies entirely below 0
     Return (blocked ids like "slice:money_movement/pass_rate", report lines)."""
-    # TODO M5
-    return [], []
+    blocked, lines = [], []
+    bs = spec.get("bootstrap", {})
+    for rule in spec["slices"]:
+        name, metric = rule["name"], rule["metric"]
+        key = f"slice:{name}/{metric}"
+        a, b = per_item(pr, metric, name), per_item(base, metric, name)
+        failed = True
+        note = "missing or unpaired slice items"
+        if a and a.keys() == b.keys():
+            value = mean(a.values())
+            note = f"{value:.4f}"
+            failed = value < rule.get("min", -math.inf) or value > rule.get("max", math.inf)
+            if rule.get("no_significant_drop"):
+                ids = sorted(a)
+                d, lo, hi = stats.paired_bootstrap([a[i] for i in ids], [b[i] for i in ids],
+                        n_resamples=bs.get("n_resamples", 1000), rng=bs.get("rng", 2027),
+                        confidence=bs.get("confidence", 0.95))
+                failed |= hi < 0
+                note += f" Δ {d:+.3f} CI [{lo:+.3f}, {hi:+.3f}]"
+        verdict = "ok"
+        if failed:
+            verdict = "warn"
+            if rule.get("blocking"):
+                blocked.append(key)
+                verdict = "BLOCK"
+        lines.append(f"  {key} {note} {verdict}")
+    return blocked, lines
 
 
 def check(pr: dict, base: dict, spec: dict, base_spec: dict | None = None) -> tuple[list[str], list[str]]:

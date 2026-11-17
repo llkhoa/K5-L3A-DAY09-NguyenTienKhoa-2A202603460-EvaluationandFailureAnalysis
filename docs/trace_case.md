@@ -1,30 +1,12 @@
-# Trace case: từ trace tới quyết định sai đầu tiên
+# C-002@11 — lần ghi đè đầu tiên
 
-Một trace case trả lời một câu: **bước nào là bước sai đầu tiên**, và test nào sẽ bắt được nó lần sau.
+Run `E-seeded_regression-20261117-8c3d`, item E-002. Nhãn yêu cầu denied và 0đ. Ledger có một giao dịch 20.000đ, reply cũng báo 20.000đ. Vì vậy grader đối chiếu reply với ledger vẫn pass, còn RefundAmountCorrect và TrialPass đều fail.
 
-```bash
-cd src
-python -m lab9.trace_case --shape seeded_regression --claim C-002 --seed 11
-python -m lab9.trace_case --shape fixed --claim C-002 --seed 11   # đối chứng
-```
+| Bước | seeded_regression | fixed, cùng claim và seed |
+|---|---|---|
+| 1 | Handoff điều tra chỉ đọc cho claim. | Cùng phạm vi. |
+| 2 | Investigator đọc được O-202, DB ghi trễ 2 ngày. | Cùng dữ kiện. |
+| **3** | **model_override** ghi `{"delay_days": 5}`, lấy số trên ticket thay DB (FM-03). | Quote 0đ, lý do no_entitlement. |
+| Sau đó | Bước 4 quote 20.000đ, bước 5 đọc lịch sử 0đ, bước 6 báo đã hoàn. | Bước 4 trả lời từ chối, ledger không có giao dịch. |
 
-Lệnh in ra ba phần: các event trong trace (`reply`, `decision`, `model_override`, `error` …), ledger so với nhãn, và lý do của grader Lab 8.
-
-## Mẫu điền (mỗi nhóm 1 case, lấy từ trial đang fail trong report)
-
-| Trường | Nội dung |
-|---|---|
-| Trial | `<shape> <claim>@<seed>`, run ID trong report |
-| Triệu chứng | Grader nào fail; reply nói gì so với ledger ghi gì |
-| Bước sai đầu tiên | Số thứ tự event + kind + trích payload (≤1 dòng) |
-| Vì sao là bước *đầu tiên* | Các bước trước đó đúng ra sao (dẫn số event) |
-| Failure mode | Mã FM-xx trong `docs/failure_taxonomy.md` |
-| Đối chứng | Cùng claim@seed trên shape `fixed`: bước đó khác thế nào |
-| Regression test | Tên test + grader/assert nào bắt được; đã thấy fail trên variant lỗi và pass trên `fixed` chưa |
-| Chưa chắc chắn | Điều trace không chứng minh được |
-
-## Quy tắc
-
-- Đọc **ledger trước reply**: reply trôi chảy vẫn có thể đi kèm một khoản hoàn sai.
-- "Bước sai đầu tiên" phải dẫn số event cụ thể, không phải "agent bị nhầm".
-- Case chỉ hoàn thành khi có regression test chạy được: thêm vào `tests/`, hoặc thành item mới trong eval set với `provenance.from_trace`.
+Trong thư mục `src`, chạy `python -m lab9.trace_case --shape seeded_regression --claim C-002 --seed 11`, lặp lại với `--shape fixed`. Test `tests/test_lab9_trace_case.py::test_c002_ticket_cannot_replace_db_delay` kiểm sự kiện ghi đè, ledger và verdict trên cả hai shape. Trace xác định thao tác sai đầu tiên quan sát được; không cho biết suy luận nội bộ của một model thật.

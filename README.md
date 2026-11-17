@@ -1,3 +1,16 @@
+# Lab 9 · Nguyễn Tiến Khoa · 2A202603460
+
+Bài làm M0–M7 của LogiX-VN. Repo này đã tích hợp starter và runtime Lab 8 của nhóm Mien Nui. Có thể chạy trực tiếp từ thư mục `src`:
+
+```bash
+python -m pip install -r requirements.txt -r requirements-lab9.txt
+python -m lab9.smoke
+python -m pytest -q -m student -o addopts= -k lab9
+python -m lab9.mutation --spec config/metric_spec_v2.yaml --baseline reports/baseline_v2.json
+```
+
+Xem [eval card](docs/eval_card.md) và [phân tích trace](docs/trace_case.md). Phần dưới là đề bài gốc. Mã và báo cáo được chuyển từ [commit đã kiểm thử của nhóm Mien Nui](https://github.com/hoangnguyenai/K5-L3A-DAY08-MienNui-FromWorkflowsToAgents/tree/45e59b9).
+
 # K5 · Day 9 · Lab — Evaluation & Failure Analysis (LogiX-VN)
 
 > Nối tiếp Lab 8. Lab 8 trả lời "agent có chạy không"; Lab 9 trả lời **"làm sao biết bản mới tốt hơn — và chặn được bản tệ trước khi merge"**.
